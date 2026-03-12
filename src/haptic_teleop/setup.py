@@ -38,6 +38,8 @@ setup(
             "master_teleop    = haptic_teleop.master_teleop:main",
             # ros2 run haptic_teleop collision_feedback_node
             "collision_feedback_node = haptic_teleop.collision_feedback_node:main",
+            # ros2 run haptic_teleop force_dashboard
+            "force_dashboard = haptic_teleop.force_dashboard:main",
         ],
     },
 )
