@@ -65,10 +65,13 @@ class BilateralTeleop(Node):
 
         self._fwin         = deque(maxlen=3)
         self._last_force_t = self.get_clock().now()
+        self._force_ever_received = False
         self._in_contact   = False
         self._collision_active = False
 
-        self._go_home_master()
+        # ── Conexión persistente al maestro (SDK) ────────────────
+        self._master_arm = None
+        self._init_master()
         self._go_home_slave()
 
         qos_be = QoSProfile(
@@ -77,6 +80,10 @@ class BilateralTeleop(Node):
         qos_rel = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST, depth=10)
+
+        # Publicador de joint states del maestro (reemplaza xarm_driver + relay)
+        self._pub_master_js = self.create_publisher(
+            JointState, "/master/joint_states", qos_be)
 
         self.create_subscription(JointState, "/master/joint_states",
                                  self._cb_master, qos_be)
@@ -96,6 +103,8 @@ class BilateralTeleop(Node):
             "/master/reflected_torques",
             qos_rel)
 
+        # Timer para leer posiciones del maestro vía SDK (~90 Hz)
+        self.create_timer(1.0 / 90.0, self._poll_master)
         self.create_timer(DT,  self._control_loop)
         self.create_timer(0.1, self._watchdog)
 
@@ -126,7 +135,8 @@ class BilateralTeleop(Node):
         self.wdog_t        = self.get_parameter("watchdog_timeout").value
         self.torque_gain   = self.get_parameter("torque_gain").value
 
-    def _go_home_master(self):
+    def _init_master(self):
+        """Conecta al maestro, lo lleva a HOME y lo deja en teach mode."""
         self.get_logger().info("🏠 Moviendo maestro a HOME...")
         HOME_DEG = [round(r * 180.0 / np.pi, 4) for r in HOME_RAD]
         try:
@@ -138,11 +148,29 @@ class BilateralTeleop(Node):
             arm.set_servo_angle(angle=HOME_DEG, speed=25, wait=True)
             arm.set_mode(2)   # teach mode — operador puede mover a mano
             arm.set_state(0)
-            arm.disconnect()
+            self._master_arm = arm   # mantener conexión abierta
             self.get_logger().info("✅ Maestro en HOME (teach mode)")
             time.sleep(0.5)
         except Exception as e:
             self.get_logger().warn(f"⚠ HOME maestro falló: {e} — continuando")
+
+    def _poll_master(self):
+        """Lee posiciones del maestro vía SDK y publica en /master/joint_states."""
+        if self._master_arm is None:
+            return
+        try:
+            code, angles = self._master_arm.get_servo_angle(is_radian=True)
+            if code != 0:
+                return
+            pos = angles[:N_JOINTS]
+            msg = JointState()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.name = JOINT_NAMES
+            msg.position = [float(a) for a in pos]
+            self._pub_master_js.publish(msg)
+        except Exception as e:
+            self.get_logger().warn(
+                f"⚠ Error leyendo maestro: {e}", throttle_duration_sec=2.0)
 
     def _go_home_slave(self):
         self.get_logger().info("🏠 Moviendo esclavo a HOME...")
@@ -182,6 +210,7 @@ class BilateralTeleop(Node):
     def _cb_force(self, msg: Int32):
         self._fwin.append(msg.data)
         self._last_force_t = self.get_clock().now()
+        self._force_ever_received = True
         if len(self._fwin) < 3:
             return
         contact  = all(v < self.force_thr for v in self._fwin)
@@ -223,6 +252,7 @@ class BilateralTeleop(Node):
         self.offset = arr_s.mean(axis=0) - arr_m.mean(axis=0)
         self._q_master_prev = self.q_master.copy()
         self._still_count   = 0
+        self._last_force_t  = self.get_clock().now()
         self.state = TeleopState.RUNNING
 
         self.get_logger().info(
@@ -293,6 +323,8 @@ class BilateralTeleop(Node):
                 throttle_duration_sec=0.5)
 
     def _watchdog(self):
+        if not self._force_ever_received:
+            return
         elapsed = (self.get_clock().now() - self._last_force_t).nanoseconds * 1e-9
         if elapsed > self.wdog_t:
             with self._lock:
@@ -340,8 +372,16 @@ def main(args=None):
     except KeyboardInterrupt:
         node.get_logger().info("🔴 Shutdown")
     finally:
-        if node._s_ready:
-            node._pub_hold()
+        try:
+            if node._s_ready:
+                node._pub_hold()
+        except Exception:
+            pass
+        if node._master_arm is not None:
+            try:
+                node._master_arm.disconnect()
+            except Exception:
+                pass
         node.destroy_node()
         rclpy.shutdown()
 
