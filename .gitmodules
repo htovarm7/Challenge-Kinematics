@@ -1,0 +1,7 @@
+[submodule "src/xarm_ros2"]
+	path = src/xarm_ros2
+	url = https://github.com/xArm-Developer/xarm_ros2.git
+	branch = humble
+[submodule "src/pymoveit2"]
+	path = src/pymoveit2
+	url = https://github.com/AndrejOrsula/pymoveit2.git
