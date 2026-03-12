@@ -66,5 +66,3 @@ void loop() {
 
   delay(100); // ~10 Hz
 }
-
-entonces este codigo si va a funcionar?
