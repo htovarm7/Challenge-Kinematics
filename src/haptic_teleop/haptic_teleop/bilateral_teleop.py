@@ -136,8 +136,10 @@ class BilateralTeleop(Node):
             arm.set_mode(0)
             arm.set_state(0)
             arm.set_servo_angle(angle=HOME_DEG, speed=25, wait=True)
+            arm.set_mode(2)   # teach mode — operador puede mover a mano
+            arm.set_state(0)
             arm.disconnect()
-            self.get_logger().info("✅ Maestro en HOME")
+            self.get_logger().info("✅ Maestro en HOME (teach mode)")
             time.sleep(0.5)
         except Exception as e:
             self.get_logger().warn(f"⚠ HOME maestro falló: {e} — continuando")
