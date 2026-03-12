@@ -560,8 +560,7 @@ class BilateralTeleop(Node):
         q_des = self.q_master + self.offset
         q_err = q_des - self.q_slave
 
-        # ── Aplicar límites articulares ────────────────────
-        q_des = np.clip(q_des, JOINT_MIN, JOINT_MAX)
+        # Límites articulares los maneja el firmware del xArm y ros2_control
 
         # ── Rate-limiting: máx MAX_DELTA_RAD por ciclo por junta ───
         if self._q_des_prev is not None:
