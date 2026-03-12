@@ -28,7 +28,6 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import FancyBboxPatch
 import matplotlib.gridspec as gridspec
 
 JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
@@ -60,19 +59,11 @@ class ForceDashboard(Node):
         self._force_time = deque(maxlen=HISTORY)
 
         self._tau_slave = np.zeros(N_JOINTS)
-        self._tau_baseline = np.zeros(N_JOINTS)
-        self._baseline_ok = False
-        self._baseline_samples = []
-
         self._q_master = np.zeros(N_JOINTS)
         self._q_slave = np.zeros(N_JOINTS)
         self._reflected = np.zeros(N_JOINTS)
         self._force_raw = 4095
         self._collision_active = False
-        self._effort_collision = False
-
-        # ── Calibration: collect baseline for 2 seconds ───
-        self._calib_countdown = 100  # ~2s at 50Hz
 
         # ── Subscriptions ─────────────────────────────────
         self.create_subscription(
@@ -106,32 +97,14 @@ class ForceDashboard(Node):
             self._q_slave = pos
             self._tau_slave = eff
 
-            # Auto-calibrate baseline
-            if not self._baseline_ok:
-                self._baseline_samples.append(eff.copy())
-                self._calib_countdown -= 1
-                if self._calib_countdown <= 0 and len(self._baseline_samples) >= 50:
-                    arr = np.array(self._baseline_samples[-80:])
-                    self._tau_baseline = arr.mean(axis=0)
-                    self._baseline_ok = True
-                    self.get_logger().info(
-                        f"[Dashboard] Baseline calibrated: {np.round(self._tau_baseline, 2)}")
-                return
-
             t = time.time() - self._t0
-            tau_ext = eff - self._tau_baseline
             self._time_buf.append(t)
             for i in range(N_JOINTS):
-                self._effort_buf[i].append(tau_ext[i])
+                self._effort_buf[i].append(eff[i])
 
-            q_err = np.rad2deg(self._q_master + self._compute_offset() - pos)
+            q_err = np.rad2deg(self._q_master - pos)
             for i in range(N_JOINTS):
                 self._qerr_buf[i].append(q_err[i])
-
-    def _compute_offset(self):
-        """Simple offset — assumes both start near HOME."""
-        # Use the same approach as bilateral_teleop
-        return self._q_slave * 0  # offset applied externally; show raw error
 
     def _cb_master(self, msg: JointState):
         name_map = dict(zip(msg.name, range(len(msg.name))))
@@ -184,7 +157,7 @@ def main(args=None):
 
     # Subplot 1: External torques (tau_ext per joint)
     ax_effort = fig.add_subplot(gs[0, :])
-    ax_effort.set_title("Torque Externo Estimado (τ_ext = τ_slave − τ_baseline)", fontsize=11)
+    ax_effort.set_title("Torque Esclavo (esfuerzo crudo)", fontsize=11)
     ax_effort.set_ylabel("N·m")
     ax_effort.set_xlim(0, HISTORY / 50.0)
     ax_effort.set_ylim(-10, 10)
@@ -254,9 +227,6 @@ def main(args=None):
                                   color="white", transform=ax_status.transAxes),
         "refl_max": ax_status.text(0.05, 0.17, "|τ_refl|_max: ---", fontsize=11,
                                    color="white", transform=ax_status.transAxes),
-        "baseline": ax_status.text(0.05, 0.02, "Baseline: calibrando...",
-                                   fontsize=10, color="yellow",
-                                   transform=ax_status.transAxes),
     }
 
     # ── Animation update ──────────────────────────────────
@@ -294,14 +264,10 @@ def main(args=None):
             contact = fsr_val < 3900
             collision = node._collision_active
 
-            tau_ext = node._tau_slave - node._tau_baseline if node._baseline_ok else np.zeros(N_JOINTS)
-            tau_max = np.max(np.abs(tau_ext))
+            tau_max = np.max(np.abs(node._tau_slave))
             refl_max = np.max(np.abs(node._reflected))
 
-            if not node._baseline_ok:
-                state_str = "CALIBRANDO"
-                state_color = "yellow"
-            elif collision or tau_max > 6.0:
+            if collision or tau_max > 6.0:
                 state_str = "COLISIÓN"
                 state_color = "#ff4444"
             elif contact:
@@ -321,9 +287,6 @@ def main(args=None):
             status_texts["tau_max"].set_text(f"|τ_ext|_max: {tau_max:.2f} N·m")
             status_texts["tau_max"].set_color("#ff4444" if tau_max > 6 else "white")
             status_texts["refl_max"].set_text(f"|τ_refl|_max: {refl_max:.2f} N·m")
-            status_texts["baseline"].set_text(
-                f"Baseline: {'✓ OK' if node._baseline_ok else 'calibrando...'}")
-            status_texts["baseline"].set_color("#00ff88" if node._baseline_ok else "yellow")
 
         return (effort_lines + refl_lines + err_lines + [fsr_line]
                 + list(status_texts.values()))
