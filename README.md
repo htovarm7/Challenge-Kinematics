@@ -3,33 +3,31 @@ Dr. Luis Alberto Muñoz Ubando
 
 ## Overview
 
-This project implements a **bilateral haptic teleoperation** system for two **xArm Lite 6** robots using ROS 2. A human operator moves the master robot by hand, and the slave robot replicates the movements in real time. When the slave detects a collision (via joint effort or an FSR force sensor), the system reflects force back to the master so the operator feels resistance.
+This project implements a **bilateral haptic teleoperation** system for two **xArm Lite 6** robots using ROS 2. A human operator moves the master robot by hand, and the slave robot replicates the movements in real time. When the slave detects a collision (via joint effort or an FSR force sensor), the master locks up so the operator feels the collision.
 
 ### Hardware
 
 | Robot | IP | Role |
 |---|---|---|
-| xArm Lite 6 | 192.168.1.175 | **Slave** — replicates master movements |
-| xArm Lite 6 | 192.168.1.167 | **Master** — moved by human operator |
+| xArm Lite 6 | 192.168.1.175 | **Slave** — replicates master movements via ros2_control |
+| xArm Lite 6 | 192.168.1.167 | **Master** — moved by human operator (SDK direct) |
 | ESP32 + micro-ROS | USB `/dev/ttyUSB0` | FSR force sensor |
 
 ### Components
 
-- **bilateral_teleop.py** — Main ROS 2 node (FSM + effort-based haptic feedback)
-- **master_teleop.py** — Master robot node
+- **bilateral_teleop.py** — Main ROS 2 node (FSM + effort-based collision detection + master SDK connection)
+- **recover_slave.py** — Script to clear xArm errors and reset the slave for ros2_control
 - **Force_Sensor.ino** — ESP32 sketch that reads an analog force sensor and publishes `Int32` messages to `/force_sensor` via micro-ROS
 - **xarm_ros2** — Full xArm ROS 2 driver stack (controllers, MoveIt config)
-- **pymoveit2** — Python interface for MoveIt 2 motion planning
 
 ## Prerequisites
 
 - **ROS 2 Humble**
 - **MoveIt 2**
 - **micro-ROS Agent** (`ros-humble-micro-ros-agent`)
-- **topic_tools** (`ros-humble-topic-tools`)
 - **xarm-python-sdk** (`pip install xarm-python-sdk`)
 - **Arduino IDE** with micro-ROS library (for flashing sensor firmware)
-- Two **xArm Lite 6** robots on the same network
+- Two **xArm Lite 6** robots on the same network (192.168.1.x)
 
 ## Setup
 
@@ -49,7 +47,7 @@ git submodule update --init --recursive
 ### 2. Install dependencies
 
 ```bash
-sudo apt install ros-humble-topic-tools ros-humble-micro-ros-agent
+sudo apt install ros-humble-micro-ros-agent
 pip install xarm-python-sdk
 rosdep install --from-paths src --ignore-src -r -y
 ```
@@ -69,7 +67,7 @@ source install/setup.bash
 3. Connect the force sensor to **GPIO 34**.
 4. Flash the sketch to your ESP32 board.
 
-## How to Run — Bilateral Teleoperation (6 terminals)
+## How to Run — Bilateral Teleoperation (4 terminals)
 
 Open each terminal in order and wait for the confirmation message before proceeding.
 
@@ -81,7 +79,18 @@ ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/ttyUSB0
 
 Confirm: ESP32 connects and session logs appear.
 
-### Terminal 2 — Slave MoveIt
+### Terminal 2 — Recover slave (one-time, before each session)
+
+```bash
+cd ~/Desktop/Challenge-Kinematics/src
+python3 recover_slave.py
+```
+
+Confirm: `Listo para ros2_control: mode=1, state=2`
+
+> This clears any pending errors on the slave and puts it in servo mode for ros2_control.
+
+### Terminal 3 — Slave MoveIt + ros2_control
 
 ```bash
 cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
@@ -90,48 +99,9 @@ ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py \
   add_realsense_d435i:=false
 ```
 
-Confirm: `You can start planning now!`
+Confirm: `You can start planning now!` and `lite6_traj_controller` loaded.
 
-### Terminal 3 — Master driver (namespace /master)
-
-```bash
-cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
-ros2 run xarm_api xarm_driver_node \
-  --ros-args \
-  -r __ns:=/master \
-  -p robot_ip:=192.168.1.167 \
-  -p dof:=6 \
-  -p report_type:=dev
-```
-
-Confirm: `[TCP STATUS] CONTROL: 1`
-
-> **`report_type:=dev` is required.** With `normal` you only get ~5 Hz and calibration fails.
-
-### Terminal 4 — Master topic relay
-
-```bash
-cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
-ros2 run topic_tools relay \
-  /master/xarm/joint_states \
-  /master/joint_states
-```
-
-Confirm: no errors, terminal stays silent.
-
-### Terminal 5 — MoveIt Servo
-
-```bash
-cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
-ros2 launch xarm_moveit_servo lite6_moveit_servo_realmove.launch.py \
-  robot_ip:=192.168.1.175
-```
-
-Confirm: `Loaded node '/servo_server'`
-
-> `Failed loading controller lite6_traj_controller` is **normal** — Terminal 2 already loaded it.
-
-### Terminal 6 — Bilateral teleoperation node
+### Terminal 4 — Bilateral teleoperation node
 
 ```bash
 cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
@@ -139,24 +109,39 @@ ros2 run haptic_teleop bilateral_teleop --ros-args \
   --params-file src/haptic_teleop/config/teleop_params.yaml
 ```
 
-Confirm: `Calibration OK → RUNNING`
+Confirm: `Estado -> RUNNING` followed by `Grace period terminado - maestro desbloqueado`
 
-The node moves the master to HOME automatically, waits 2 seconds, then calibrates. **Do not touch either robot during calibration.**
+## Startup Sequence
 
-## Usage
+The node follows this state machine:
 
-Once the node is in **RUNNING** state, move the **master robot** by hand and the **slave** will replicate the movements. If the slave hits an obstacle, you will feel resistance in the master (haptic feedback).
+```
+HOMING → CALIBRATING → RUNNING (grace 3s) → RUNNING (active)
+```
+
+1. **HOMING** — Both robots move to HOME position. Master is locked (mode 0). Slave moves via trajectory controller.
+2. **CALIBRATING** — Collects 80 samples of joint positions and efforts from both robots to compute offsets and effort baselines. **Do not touch either robot.**
+3. **RUNNING (grace)** — 3-second stabilization period. Slave holds position, master remains locked.
+4. **RUNNING (active)** — Master unlocks (teach mode). Operator can move it. Slave follows.
+
+## Collision Behavior
+
+When the slave detects an external force above the effort threshold (6.0 N.m):
+
+1. **Slave holds** — stops following the master, maintains current position
+2. **Master locks** — switches to position mode, operator cannot move it
+3. **Minimum hold** — collision state is maintained for at least 2 seconds
+4. **Release** — when external force drops and hold time has passed, master unlocks and teleoperation resumes
 
 ## Topics
 
 | Topic | Type | Description |
 |---|---|---|
-| `/master/xarm/joint_states` | `sensor_msgs/JointState` | Master joint state (~90 Hz) |
-| `/master/joint_states` | `sensor_msgs/JointState` | Master relay |
+| `/master/joint_states` | `sensor_msgs/JointState` | Master joint state (published by bilateral_teleop via SDK, ~90 Hz) |
 | `/joint_states` | `sensor_msgs/JointState` | Slave joint state + efforts (~150 Hz) |
 | `/force_sensor` | `std_msgs/Int32` | ESP32 ADC (rest ~4095, contact <3900) |
 | `/lite6_traj_controller/joint_trajectory` | `trajectory_msgs/JointTrajectory` | Trajectory commands to slave |
-| `/master/reflected_torques` | `std_msgs/Float64MultiArray` | Haptic feedback torques to master |
+| `/master/reflected_torques` | `std_msgs/Float64MultiArray` | Haptic feedback torques (logged, not applied) |
 
 ## Parameters
 
@@ -172,23 +157,34 @@ See [`src/haptic_teleop/config/teleop_params.yaml`](src/haptic_teleop/config/tel
 | `calib_samples` | 80 | Samples for calibration |
 | `watchdog_timeout` | 0.5 | Time without force data before EMERGENCY [s] |
 | `torque_gain` | 0.15 | Haptic feedback gain for position error |
+| `perturbation_thr_deg` | 2.0 | Threshold for detecting external perturbation [deg] |
 
-## Error Recovery (C31)
+## Error Recovery
 
-If the slave throws error C31 (`Collision Caused Abnormal Joint Current`):
+### C31 — Collision Caused Abnormal Joint Current
 
 ```bash
-python3 ~/recover_slave.py
+cd ~/Desktop/Challenge-Kinematics/src
+python3 recover_slave.py
 ```
 
-Then restart Terminal 5 to reload `lite6_traj_controller`.
+Then restart Terminal 3 (MoveIt + ros2_control).
+
+### C60 — Abnormal Error Code
+
+Same procedure as C31: run `recover_slave.py` and restart Terminal 3.
+
+### Master stuck / won't move
+
+The node automatically clears errors on the master when switching modes. If the master is completely unresponsive, restart Terminal 4 (bilateral_teleop).
 
 ## Troubleshooting
 
 | Problem | Cause | Solution |
 |---|---|---|
-| Calibration stuck at 0/80 | Master topic at 5 Hz | Use `report_type:=dev` in Terminal 3 |
-| Calibration fails (high std) | Robots moving during startup | Don't touch robots for first 3 seconds |
-| C31 error during motion | Aggressive trajectory or real collision | Run `recover_slave.py`, restart Terminal 5 |
+| Calibration stuck at 0/80 | No slave data received | Check Terminal 3 is running |
+| Calibration fails (high std) | Robots moving during calibration | Don't touch robots, they will stabilize |
+| C31/C60 error on slave | Collision or servo command rejected | Run `recover_slave.py`, restart Terminal 3 |
 | `Package 'haptic_teleop' not found` | `install/setup.bash` not sourced | Run `source install/setup.bash` after build |
-| `Package 'topic_tools' not found` | Missing system package | `sudo apt install ros-humble-topic-tools` |
+| Master won't unlock after collision | xArm error state | Restart Terminal 4 |
+| Slave drifts without input | Joint limits clipping | Fixed — limits handled by xArm firmware |

@@ -288,6 +288,9 @@ class BilateralTeleop(Node):
             if code != 0:
                 return
             cur_deg = [float(a * 180.0 / np.pi) for a in angles[:N_JOINTS]]
+            self._master_arm.clean_error()
+            self._master_arm.clean_warn()
+            self._master_arm.motion_enable(enable=True)
             self._master_arm.set_mode(0)
             self._master_arm.set_state(0)
             time.sleep(0.05)
@@ -303,8 +306,12 @@ class BilateralTeleop(Node):
         if self._master_arm is None:
             return
         try:
+            self._master_arm.clean_error()
+            self._master_arm.clean_warn()
+            self._master_arm.motion_enable(enable=True)
             self._master_arm.set_mode(2)
             self._master_arm.set_state(0)
+            time.sleep(0.1)
             self._master_locked = False
             self.get_logger().info(
                 "[UNLOCK] Maestro desbloqueado (colisión liberada)")
