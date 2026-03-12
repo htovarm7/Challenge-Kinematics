@@ -42,7 +42,7 @@ haptic_teleop/
 ## Instalación
 
 ```bash
-cd ~/Challenge-Kinematics
+cd ~/Desktop/Challenge-Kinematics
 colcon build --symlink-install --packages-select haptic_teleop
 source install/setup.bash
 ```
@@ -72,7 +72,7 @@ ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/ttyUSB0
 
 ### Terminal 2 — MoveIt completo del esclavo
 ```bash
-cd ~/Challenge-Kinematics && source install/setup.bash
+cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
 ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py \
   robot_ip:=192.168.1.175 \
   add_realsense_d435i:=false
@@ -83,7 +83,7 @@ ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py \
 
 ### Terminal 3 — Driver del robot maestro (namespace /master)
 ```bash
-cd ~/Challenge-Kinematics && source install/setup.bash
+cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
 ros2 run xarm_api xarm_driver_node \
   --ros-args \
   -r __ns:=/master \
@@ -99,7 +99,7 @@ ros2 run xarm_api xarm_driver_node \
 
 ### Terminal 4 — Relay de topics del maestro
 ```bash
-cd ~/Challenge-Kinematics && source install/setup.bash
+cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
 ros2 run topic_tools relay \
   /master/xarm/joint_states \
   /master/joint_states
@@ -110,7 +110,7 @@ ros2 run topic_tools relay \
 
 ### Terminal 5 — MoveIt Servo
 ```bash
-cd ~/Challenge-Kinematics && source install/setup.bash
+cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
 ros2 launch xarm_moveit_servo lite6_moveit_servo_realmove.launch.py \
   robot_ip:=192.168.1.175
 ```
@@ -122,7 +122,7 @@ ros2 launch xarm_moveit_servo lite6_moveit_servo_realmove.launch.py \
 
 ### Terminal 6 — Nodo de teleoperación bilateral
 ```bash
-cd ~/Challenge-Kinematics && source install/setup.bash
+cd ~/Desktop/Challenge-Kinematics && source install/setup.bash
 ros2 run haptic_teleop bilateral_teleop --ros-args \
   --params-file src/haptic_teleop/config/teleop_params.yaml
 ```
