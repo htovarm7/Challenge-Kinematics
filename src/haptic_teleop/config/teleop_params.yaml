@@ -1,24 +1,18 @@
-# config/teleop_params.yaml
-# Parámetros compartidos para todos los nodos del paquete haptic_teleop
-# Jose Luis Dominguez – ITESM TE3001B
-
 bilateral_teleop:
   ros__parameters:
-    kp:                0.4      # ← bajamos de 1.2 a 0.4
-    max_vel:           0.3      # ← bajamos de 0.8 a 0.3
-    max_accel:         0.5      # ← bajamos de 1.5 a 0.5
-    alpha_vel:         0.08
+    kp:                5.0
+    max_vel:           2.5
+    max_accel:         5.0
+    alpha_vel:         0.20
     force_threshold:   3900
     force_hysteresis:  3950
     calib_samples:     80
     calib_std_max:     0.02
     watchdog_timeout:  0.5
     torque_gain:       0.15
-
 force_stop_node:
   ros__parameters:
     force_threshold:   3900
-
 master_teleop:
   ros__parameters:
-    torque_scale:      1.0     # Escala adicional para feedback háptico
+    torque_scale:      1.0
