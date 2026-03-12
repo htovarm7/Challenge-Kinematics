@@ -12,7 +12,7 @@ from rclpy.node import Node
 from rclpy.qos  import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from sensor_msgs.msg        import JointState
-from std_msgs.msg           import Int32, Float64MultiArray
+from std_msgs.msg           import Int32, Float64MultiArray, Bool
 from trajectory_msgs.msg    import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
@@ -66,6 +66,7 @@ class BilateralTeleop(Node):
         self._fwin         = deque(maxlen=3)
         self._last_force_t = self.get_clock().now()
         self._in_contact   = False
+        self._collision_active = False
 
         self._go_home_master()
 
@@ -82,6 +83,8 @@ class BilateralTeleop(Node):
                                  self._cb_slave, qos_be)
         self.create_subscription(Int32, "/force_sensor",
                                  self._cb_force, qos_be)
+        self.create_subscription(Bool, "/slave/collision_active",
+                                 self._cb_collision, qos_rel)
 
         self._pub_traj = self.create_publisher(
             JointTrajectory,
@@ -174,6 +177,10 @@ class BilateralTeleop(Node):
                 if self.state == TeleopState.FORCE_STOP:
                     self._exit_force_stop()
 
+    def _cb_collision(self, msg: Bool):
+        """Cuando el nodo de colisión detecta contacto, pausar teleoperación."""
+        self._collision_active = msg.data
+
     def _try_calibrate(self):
         n = min(len(self._buf_m), len(self._buf_s))
         if n < self.calib_n:
@@ -226,6 +233,10 @@ class BilateralTeleop(Node):
         if st != TeleopState.RUNNING:
             return
         if not (self._m_ready and self._s_ready):
+            return
+
+        # Si el nodo de colisión está activo, él controla trayectorias y torques
+        if self._collision_active:
             return
 
         q_des = self.q_master + self.offset

@@ -54,7 +54,14 @@ def generate_launch_description():
         parameters=[params_file],
     )
 
-    # ── 4. Nodo de teleoperación bilateral (arranca 3s después) ───
+    # ── 4. Nodo collision_feedback (detección por esfuerzos del esclavo) ─
+    collision_fb = Node(
+        package="haptic_teleop", executable="collision_feedback_node",
+        name="collision_feedback_node", output="screen",
+        parameters=[params_file],
+    )
+
+    # ── 5. Nodo de teleoperación bilateral (arranca 3s después) ───
     bilateral = TimerAction(
         period=3.0,
         actions=[
@@ -71,5 +78,6 @@ def generate_launch_description():
         microros,
         master_node,
         force_stop,
+        collision_fb,
         bilateral,
     ])

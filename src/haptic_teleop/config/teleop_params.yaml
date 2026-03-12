@@ -17,6 +17,16 @@ force_stop_node:
   ros__parameters:
     force_threshold:   3900
 
+collision_feedback_node:
+  ros__parameters:
+    effort_threshold:      3.0    # umbral de esfuerzo para detectar colision [N*m]
+    calib_samples:         100    # muestras para calibrar baseline de esfuerzos
+    collision_samples:     3      # muestras consecutivas para confirmar colision
+    reflection_gain:       0.5    # ganancia de reflexion de fuerzas al maestro
+    max_reflection_torque: 2.0    # torque maximo reflejado [N*m]
+    traj_time_ms:          60     # duracion de trayectoria de hold [ms]
+    release_factor:        0.5    # factor del umbral para liberar colision (0.5 = 50%)
+
 master_teleop:
   ros__parameters:
     torque_scale:      1.0

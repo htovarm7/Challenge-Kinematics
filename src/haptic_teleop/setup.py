@@ -36,6 +36,8 @@ setup(
             "force_stop_node  = haptic_teleop.force_stop_node:main",
             # ros2 run haptic_teleop master_teleop
             "master_teleop    = haptic_teleop.master_teleop:main",
+            # ros2 run haptic_teleop collision_feedback_node
+            "collision_feedback_node = haptic_teleop.collision_feedback_node:main",
         ],
     },
 )
