@@ -1,18 +1,22 @@
+# haptic_teleop/config/teleop_params.yaml
+# Jose Luis Dominguez – ITESM TE3001B
+# Approach: posición directa al lite6_traj_controller (sin MoveIt Servo)
+
 bilateral_teleop:
   ros__parameters:
-    kp:                5.0
-    max_vel:           2.5
-    max_accel:         5.0
-    alpha_vel:         0.20
-    force_threshold:   3900
-    force_hysteresis:  3950
-    calib_samples:     80
-    calib_std_max:     0.02
-    watchdog_timeout:  0.5
-    torque_gain:       0.15
+    traj_time_ms:      60       # duración de cada trayectoria [ms] — aumentar si hay saltos
+    still_thr_deg:     0.10     # umbral para detectar maestro quieto [grados]
+    still_cycles:      3        # ciclos quieto antes de frenar (3 × 20ms = 60ms)
+    force_threshold:   3900     # ADC contacto
+    force_hysteresis:  3950     # ADC liberación
+    calib_samples:     80       # muestras de calibración
+    watchdog_timeout:  0.5      # seg sin sensor → EMERGENCY
+    torque_gain:       0.15     # ganancia haptic feedback
+
 force_stop_node:
   ros__parameters:
     force_threshold:   3900
+
 master_teleop:
   ros__parameters:
     torque_scale:      1.0
