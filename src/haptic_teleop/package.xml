@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>haptic_teleop</name>
+  <version>0.1.0</version>
+  <description>
+    Sistema de Teleoperación Bilateral Maestro-Esclavo con retroalimentación
+    háptica para xArm Lite 6. TE3001B – ITESM Robótica.
+  </description>
+
+  <maintainer email="jose.dominguez@itesm.mx">Jose Luis Dominguez</maintainer>
+  <license>MIT</license>
+
+  <!-- Build tool -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Runtime ROS 2 deps -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>control_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+
+  <!-- xArm & MoveIt -->
+  <exec_depend>xarm_api</exec_depend>
+  <exec_depend>xarm_moveit_servo</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+
+  <!-- micro-ROS agent -->
+  <exec_depend>micro_ros_agent</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
