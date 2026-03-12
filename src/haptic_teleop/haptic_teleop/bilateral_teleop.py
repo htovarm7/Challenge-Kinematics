@@ -32,10 +32,18 @@ RATE_HZ     = 50.0
 DT          = 1.0 / RATE_HZ
 CALIB_STD_MAX = 0.017
 
+# ── xArm Lite 6 — límites articulares [rad] ──────────
+JOINT_MIN = np.deg2rad([-360.0, -118.0, -225.0, -360.0,  -97.0, -360.0])
+JOINT_MAX = np.deg2rad([ 360.0,  120.0,   11.0,  360.0,  180.0,  360.0])
+
+# Máxima variación de posición deseada por ciclo (50 Hz)
+# 30°/s ÷ 50 Hz = 0.6°/ciclo = 0.01047 rad/ciclo
+MAX_DELTA_RAD = np.deg2rad(30.0) * DT   # 0.6° por ciclo
+
 # ── Effort-based collision detection thresholds ──────────
-EFFORT_THR   = 3.5    # N·m — umbral para detectar colisión (>3.5 para evitar falsos)
+EFFORT_THR   = 3.5    # N.m — umbral para detectar colisión (>3.5 para evitar falsos)
 HAPTIC_GAIN  = 0.35   # ganancia de reflejo al maestro
-HAPTIC_MAX   = 3.0    # N·m máximo enviado al maestro
+HAPTIC_MAX   = 3.0    # N.m máximo enviado al maestro
 COLLISION_CONFIRM = 5 # muestras consecutivas para confirmar (5×20ms = 100ms)
 
 HOME_RAD = [
@@ -72,6 +80,7 @@ class BilateralTeleop(Node):
         self._s_ready        = False
         self._buf_m          = []
         self._buf_s          = []
+        self._q_des_prev     = None    # para rate-limiting del esclavo
 
         self._fwin         = deque(maxlen=3)
         self._last_force_t = self.get_clock().now()
@@ -94,10 +103,16 @@ class BilateralTeleop(Node):
 
         # ── Hilo de gestión del maestro (lock/unlock) ────────
         self._master_locked   = False   # True = maestro bloqueado en posición
-        self._master_lock_req = False   # petición de bloqueo
+        self._master_lock_req = True    # TRUE al inicio: bloqueado durante calibracion
+        self._tau_ext_haptic  = np.zeros(N_JOINTS)  # tau_ext actual para haptic
         self._master_lock_thr = threading.Thread(
             target=self._master_lock_loop, daemon=True)
         self._master_lock_thr.start()
+
+        # Grace period tras RUNNING: ignorar colisiones los primeros N ciclos
+        # (esclavo acaba de moverse a HOME, esfuerzos no estabilizados)
+        self._running_grace_cycles = 0
+        self._GRACE_CYCLES = int(3.0 / DT)  # 3 segundos = 150 ciclos a 50 Hz
 
         # ── Logging de experimentos ────────────────────────────
         self._init_experiment_logger()
@@ -142,8 +157,12 @@ class BilateralTeleop(Node):
         self.create_timer(DT,  self._control_loop)
         self.create_timer(0.1, self._watchdog)
 
+        # Mover esclavo a HOME via controlador (2 s después de arranque)
+        self._home_sent = False
+        self.create_timer(2.0, self._go_home_slave_traj)
+
         self.get_logger().info(
-            "✅ bilateral_teleop iniciado  |  estado: CALIBRATING\n"
+            "[OK] bilateral_teleop iniciado  |  estado: CALIBRATING\n"
             f"   traj_time={self.traj_time_ms}ms  "
             f"still_thr={self.still_thr_deg}°  "
             f"torque_gain={self.torque_gain}"
@@ -238,10 +257,9 @@ class BilateralTeleop(Node):
 
     # ── Hilo de gestión de bloqueo del maestro ───────────
     def _master_lock_loop(self):
-        """Hilo dedicado que bloquea/desbloquea el maestro en función de colisión.
-        Cuando hay colisión en el esclavo → maestro en modo posición (hold).
-        Cuando se libera → maestro vuelve a teach mode.
-        Esto evita el cycling de modos en el loop de control."""
+        """Hilo dedicado que bloquea/desbloquea el maestro.
+        Colisión en esclavo -> maestro se queda duro (modo posición, hold).
+        Liberado -> maestro vuelve a teach mode (operador puede moverlo)."""
         while rclpy.ok():
             try:
                 req = self._master_lock_req
@@ -251,11 +269,11 @@ class BilateralTeleop(Node):
                     self._do_master_teach()
             except Exception:
                 pass
-            time.sleep(0.05)  # 20 Hz — fuera del loop ROS
+            time.sleep(0.05)  # 20 Hz
 
     def _do_master_hold(self):
-        """Bloquea el maestro en posición actual (mode 0 = posición).
-        El operador siente resistencia física al intentar mover el brazo."""
+        """Congela el maestro en su posición actual (mode 0).
+        El operador siente que el brazo está duro y no puede moverlo."""
         if self._master_arm is None:
             return
         try:
@@ -266,11 +284,9 @@ class BilateralTeleop(Node):
             self._master_arm.set_mode(0)
             self._master_arm.set_state(0)
             time.sleep(0.05)
-            self._master_arm.set_servo_angle(
-                angle=cur_deg, speed=30, wait=False)
+            self._master_arm.set_servo_angle(angle=cur_deg, speed=30, wait=False)
             self._master_locked = True
-            self.get_logger().warn(
-                "🔒 Maestro bloqueado (colisión en esclavo)")
+            self.get_logger().warn("[LOCK] Maestro DURO - esclavo en colision")
         except Exception as e:
             self.get_logger().warn(
                 f"Error bloqueando maestro: {e}", throttle_duration_sec=2.0)
@@ -284,7 +300,7 @@ class BilateralTeleop(Node):
             self._master_arm.set_state(0)
             self._master_locked = False
             self.get_logger().info(
-                "🔓 Maestro desbloqueado (colisión liberada)")
+                "[UNLOCK] Maestro desbloqueado (colisión liberada)")
         except Exception as e:
             self.get_logger().warn(
                 f"Error desbloqueando maestro: {e}", throttle_duration_sec=2.0)
@@ -313,8 +329,9 @@ class BilateralTeleop(Node):
             self.get_parameter("perturbation_thr_deg").value)
 
     def _init_master(self):
-        """Conecta al maestro, lo lleva a HOME y lo deja en teach mode."""
-        self.get_logger().info("🏠 Moviendo maestro a HOME...")
+        """Conecta al maestro, lo lleva a HOME y lo MANTIENE en modo posición.
+        No entra a teach mode aquí — lo hace _try_calibrate() al terminar."""
+        self.get_logger().info("[HOME] Moviendo maestro a HOME...")
         HOME_DEG = [round(r * 180.0 / np.pi, 4) for r in HOME_RAD]
         try:
             from xarm.wrapper import XArmAPI
@@ -323,13 +340,14 @@ class BilateralTeleop(Node):
             arm.set_mode(0)
             arm.set_state(0)
             arm.set_servo_angle(angle=HOME_DEG, speed=25, wait=True)
-            arm.set_mode(2)   # teach mode — operador puede mover a mano
-            arm.set_state(0)
-            self._master_arm = arm   # mantener conexión abierta
-            self.get_logger().info("✅ Maestro en HOME (teach mode)")
+            # Mantener modo 0 con hold para que joint4 no se caiga
+            arm.set_servo_angle(angle=HOME_DEG, speed=10, wait=False)
+            self._master_arm = arm
+            self._master_locked = True   # ya está en modo posición
+            self.get_logger().info("[OK] Maestro en HOME (modo posicion - esperando calibracion)")
             time.sleep(0.5)
         except Exception as e:
-            self.get_logger().warn(f"⚠ HOME maestro falló: {e} — continuando")
+            self.get_logger().warn(f"[WARN] HOME maestro fallo: {e} - continuando")
 
     def _poll_master(self):
         """Lee posiciones del maestro vía SDK y publica en /master/joint_states."""
@@ -347,7 +365,28 @@ class BilateralTeleop(Node):
             self._pub_master_js.publish(msg)
         except Exception as e:
             self.get_logger().warn(
-                f"⚠ Error leyendo maestro: {e}", throttle_duration_sec=2.0)
+                f"[WARN] Error leyendo maestro: {e}", throttle_duration_sec=2.0)
+
+    def _go_home_slave_traj(self):
+        """Manda el esclavo a HOME via lite6_traj_controller (una sola vez).
+        Usa el topic de trayectorias — no toca el SDK — respeta ros2_control."""
+        if self._home_sent:
+            return
+        self._home_sent = True
+        try:
+            msg = JointTrajectory()
+            msg.header.stamp    = self.get_clock().now().to_msg()
+            msg.header.frame_id = "world"
+            msg.joint_names     = JOINT_NAMES
+            pt = JointTrajectoryPoint()
+            pt.positions        = list(HOME_RAD)
+            pt.velocities       = [0.0] * N_JOINTS
+            pt.time_from_start  = Duration(sec=3, nanosec=0)  # 3 s suave
+            msg.points = [pt]
+            self._pub_traj.publish(msg)
+            self.get_logger().info("[HOME] Esclavo -> HOME (via controlador, 3 s)")
+        except Exception as e:
+            self.get_logger().warn(f"[WARN] HOME esclavo fallo: {e}")
 
     def _cb_master(self, msg: JointState):
         pos = self._extract(msg)
@@ -417,7 +456,7 @@ class BilateralTeleop(Node):
         if (arr_m.std(axis=0) > CALIB_STD_MAX).any() or \
            (arr_s.std(axis=0) > CALIB_STD_MAX).any():
             self.get_logger().warn(
-                f"⚠ Robots moviéndose durante calibración. Reintentando...\n"
+                f"[WARN] Robots moviéndose durante calibración. Reintentando...\n"
                 f"  std_m={np.round(arr_m.std(axis=0), 4)}\n"
                 f"  std_s={np.round(arr_s.std(axis=0), 4)}")
             self._buf_m.clear()
@@ -435,28 +474,41 @@ class BilateralTeleop(Node):
             self._tau_baseline = arr_tau.mean(axis=0)
             self._tau_baseline_ok = True
             self.get_logger().info(
-                f"   tau_baseline = {np.round(self._tau_baseline, 3)} N·m")
+                f"   tau_baseline = {np.round(self._tau_baseline, 3)} N.m")
         elif len(self._buf_tau) > 10:
             arr_tau = np.array(self._buf_tau)
             self._tau_baseline = arr_tau.mean(axis=0)
             self._tau_baseline_ok = True
             self.get_logger().warn(
                 f"   tau_baseline (parcial, {len(self._buf_tau)} muestras) = "
-                f"{np.round(self._tau_baseline, 3)} N·m")
+                f"{np.round(self._tau_baseline, 3)} N.m")
         else:
             self.get_logger().warn(
-                "   ⚠ Sin datos de esfuerzo suficientes — "
+                "   [WARN] Sin datos de esfuerzo suficientes — "
                 "haptic por esfuerzo desactivado")
 
         self.state = TeleopState.RUNNING
+        self._running_grace_cycles = 0   # ignorar colisiones 3s mientras esclavo se estabiliza
+
+        # Ahora si pasar a teach mode — calibracion lista, operador puede mover
+        self._master_lock_req = False
+        self._q_des_prev = self.q_slave.copy()   # inicializar rate-limiter desde posición real
+        try:
+            if self._master_arm is not None:
+                self._master_arm.set_mode(2)
+                self._master_arm.set_state(0)
+                self._master_locked = False
+                self.get_logger().info("[UNLOCK] Maestro en teach mode - puedes moverlo")
+        except Exception as e:
+            self.get_logger().warn(f"[WARN] set teach mode fallo: {e}")
 
         self.get_logger().info(
-            f"✅ Calibración OK\n"
+            f"[OK] Calibración OK\n"
             f"   offset = {np.round(self.offset, 4)} rad\n"
             f"   std_m  = {np.round(arr_m.std(axis=0), 5)}\n"
             f"   std_s  = {np.round(arr_s.std(axis=0), 5)}\n"
             f"   effort_baseline = {self._tau_baseline_ok}\n"
-            f"   Estado → RUNNING"
+            f"   Estado -> RUNNING"
         )
 
     def _enter_force_stop(self):
@@ -465,13 +517,13 @@ class BilateralTeleop(Node):
         if self._s_ready:
             self._pub_hold()
             self._pub_hold()
-        self.get_logger().warn("🛑 FORCE STOP – contacto detectado")
+        self.get_logger().warn("[STOP] FORCE STOP - contacto detectado")
 
     def _exit_force_stop(self):
         self.state = TeleopState.RUNNING
         self._still_count = 0
         self._master_lock_req = False  # liberar maestro
-        self.get_logger().info("▶ FORCE STOP liberado – reanudando")
+        self.get_logger().info("[GO] FORCE STOP liberado - reanudando")
 
     def _control_loop(self):
         with self._lock:
@@ -486,10 +538,31 @@ class BilateralTeleop(Node):
         if self._collision_active:
             return
 
+        # Contar ciclos para grace period
+        if self._running_grace_cycles < self._GRACE_CYCLES:
+            self._running_grace_cycles += 1
+
         q_des = self.q_master + self.offset
         q_err = q_des - self.q_slave
 
+        # ── Aplicar límites articulares ────────────────────
+        q_des = np.clip(q_des, JOINT_MIN, JOINT_MAX)
+
+        # ── Rate-limiting: máx MAX_DELTA_RAD por ciclo por junta ───
+        if self._q_des_prev is not None:
+            delta = q_des - self._q_des_prev
+            delta = np.clip(delta, -MAX_DELTA_RAD, MAX_DELTA_RAD)
+            q_des = self._q_des_prev + delta
+        self._q_des_prev = q_des.copy()
+
+        q_err = q_des - self.q_slave
+
         # ── Detección de colisión por esfuerzo ──────────────
+        # Ignorar durante grace period (esclavo moviendose a HOME)
+        if self._running_grace_cycles < self._GRACE_CYCLES:
+            self._pub_traj_point(q_des)
+            self._reflect_torques(q_err)
+            return
         tau_ext = np.zeros(N_JOINTS)
         if self._tau_baseline_ok:
             tau_ext = self._tau_slave - self._tau_baseline
@@ -503,14 +576,14 @@ class BilateralTeleop(Node):
                     self._master_lock_req = True   # ← bloquear maestro
                     self._collision_event_id += 1
                     self.get_logger().warn(
-                        f"⚡ COLISIÓN POR ESFUERZO detectada (evento #{self._collision_event_id})\n"
-                        f"   tau_ext = {np.round(tau_ext, 3)} N·m")
+                        f"[COLLISION] COLISIÓN POR ESFUERZO detectada (evento #{self._collision_event_id})\n"
+                        f"   tau_ext = {np.round(tau_ext, 3)} N.m")
             else:
                 if self._effort_collision_active:
                     self._effort_collision_active = False
                     self._master_lock_req = False   # ← liberar maestro
                     self.get_logger().info(
-                        "✅ Colisión por esfuerzo liberada")
+                        "[OK] Colisión por esfuerzo liberada")
 
         # ── Si hay colisión por esfuerzo: hold + haptic fuerte ─
         if self._effort_collision_active:
@@ -538,8 +611,9 @@ class BilateralTeleop(Node):
 
     def _reflect_effort_collision(self, tau_ext: np.ndarray,
                                     q_err: np.ndarray) -> np.ndarray:
-        """Refleja fuerzas de colisión reales al maestro (por esfuerzo).
-        El maestro ya está bloqueado físicamente por _master_lock_loop."""
+        """Publica torques reflejados y actualiza tau_ext para el hilo haptic."""
+        self._tau_ext_haptic = tau_ext.copy()   # ← hilo de haptic lo lee a 20 Hz
+
         reflected = -HAPTIC_GAIN * tau_ext
         reflected = np.clip(reflected, -HAPTIC_MAX, HAPTIC_MAX)
         self._last_tau = reflected.copy()
@@ -549,10 +623,9 @@ class BilateralTeleop(Node):
         self._pub_torque.publish(msg)
 
         self.get_logger().info(
-            f"⚡ Haptic esfuerzo τ = {np.round(reflected, 3)} N·m",
-            throttle_duration_sec=0.3)
+            f"[COLLISION] tau_ext = {np.round(tau_ext, 2)} N.m | haptic = {np.round(reflected, 2)}",
+            throttle_duration_sec=0.5)
 
-        # Log de experimento
         self._log_experiment(q_err)
         return reflected
 
@@ -573,7 +646,7 @@ class BilateralTeleop(Node):
         # Contacto FSR: publicar torques reflejados y loguear
         if self._in_contact:
             self.get_logger().info(
-                f"Haptic FSR τ = {np.round(tau, 3)} N·m",
+                f"Haptic FSR τ = {np.round(tau, 3)} N.m",
                 throttle_duration_sec=0.5)
             self._log_collision_event("fsr", tau)
 
@@ -588,7 +661,7 @@ class BilateralTeleop(Node):
                     if self._s_ready:
                         self._pub_hold()
                     self.get_logger().error(
-                        f"🚨 EMERGENCY – sin datos de fuerza por {elapsed:.2f}s")
+                        f"[EMERGENCY] EMERGENCY – sin datos de fuerza por {elapsed:.2f}s")
 
     def _pub_traj_point(self, q_des: np.ndarray):
         msg = JointTrajectory()
@@ -625,7 +698,7 @@ def main(args=None):
     try:
         executor.spin()
     except KeyboardInterrupt:
-        node.get_logger().info("🔴 Shutdown")
+        node.get_logger().info("[SHUTDOWN] Shutdown")
     finally:
         try:
             if node._s_ready:
@@ -647,7 +720,10 @@ def main(args=None):
         except Exception:
             pass
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
