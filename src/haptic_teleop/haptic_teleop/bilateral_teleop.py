@@ -69,6 +69,7 @@ class BilateralTeleop(Node):
         self._collision_active = False
 
         self._go_home_master()
+        self._go_home_slave()
 
         qos_be = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -140,6 +141,22 @@ class BilateralTeleop(Node):
             time.sleep(0.5)
         except Exception as e:
             self.get_logger().warn(f"⚠ HOME maestro falló: {e} — continuando")
+
+    def _go_home_slave(self):
+        self.get_logger().info("🏠 Moviendo esclavo a HOME...")
+        HOME_DEG = [round(r * 180.0 / np.pi, 4) for r in HOME_RAD]
+        try:
+            from xarm.wrapper import XArmAPI
+            arm = XArmAPI('192.168.1.175')
+            arm.motion_enable(enable=True)
+            arm.set_mode(0)
+            arm.set_state(0)
+            arm.set_servo_angle(angle=HOME_DEG, speed=25, wait=True)
+            arm.disconnect()
+            self.get_logger().info("✅ Esclavo en HOME")
+            time.sleep(0.5)
+        except Exception as e:
+            self.get_logger().warn(f"⚠ HOME esclavo falló: {e} — continuando")
 
     def _cb_master(self, msg: JointState):
         pos = self._extract(msg)
