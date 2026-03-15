@@ -1,6 +1,15 @@
 # TE3001B - Kinematics Challenge - Haptic Teleoperation
 Dr. Luis Alberto Muñoz Ubando
 
+**Team:** Dream Team  
+| Name | Matricula | Github User |
+|------|-----------|-------------|
+| Hector Tovar | A00840308 | @htovarm7 |
+| José Luis Domínguez Morales  | A01285873 | @JLDominguezM |
+| Paola Llamas Hernandez | A01178479 | @PaolaLlh18|
+| Jocelyn Anahi Velarde Barrón | A01285780 | @JocelynVelarde |
+
+
 ## Overview
 
 This project implements a **bilateral haptic teleoperation** system for two **xArm Lite 6** robots using ROS 2. A human operator moves the master robot by hand, and the slave robot replicates the movements in real time. When the slave detects a collision (via joint effort or an FSR force sensor), the master locks up so the operator feels the collision.
