@@ -13,6 +13,7 @@
 \usepackage[spanish,es-nodecimaldot]{babel}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{graphicx}
+\graphicspath{{experiments/plots/}}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{multirow}
@@ -359,6 +360,18 @@ respuesta transitoria con $<5\%$ de sobreimpulso):
 Los polos resultan: $s_{1,2}=-\zeta\omega_n\pm\omega_n\sqrt{\zeta^2-1}
 = -35 \pm j\,35{,}7$~rad/s.
 
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig_T2_step_response.png}
+  \caption{\textbf{Respuesta al escalón del controlador CTC.}
+  (a)~Respuesta temporal con $K_p=2500$, $K_v=70$
+  ($\zeta=0{,}7$, $\omega_n=50$~rad/s). Sobreimpulso $<5\%$ y
+  asentamiento en $\sim$85\,ms.
+  (b)~Ubicación de los polos en el plano $s$:
+  $s_{1,2}=-35\pm j\,35{.}7$~rad/s (estables, parte real negativa).}
+  \label{fig:step_response}
+\end{figure}
+
 En nuestra implementación no usamos CTC explícito; el controlador de
 trayectorias de ros2\_control (\texttt{lite6\_traj\_controller}) gestiona
 el seguimiento de posición internamente con su propio PID a 250~Hz, y
@@ -529,8 +542,15 @@ el horizonte de trayectoria (60\,ms), resultando en un retardo efectivo
 de $\sim22$\,ms. Este retardo está muy por debajo del umbral
 de inestabilidad háptica calculado en T3(b).
 
-\FIGURE{Fig. A2: Histograma de RTT medido entre PC Maestro y
-PC Esclavo. Incluyan estadísticas: media, desviación estándar, percentil 99.}
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig_A2_timing_histogram.png}
+  \caption{\textbf{Distribución temporal del lazo de control.}
+  (a)~Histograma del período del ciclo de control medido sobre los 15 ensayos.
+  (b)~Función de distribución acumulada (CDF). El período nominal de 20\,ms
+  se mantiene con baja varianza, confirmando la estabilidad del lazo a 50\,Hz.}
+  \label{fig:rtt_histogram}
+\end{figure}
 
 %% ============================================================
 \section{Estrategia de Sensado de Fuerza}
@@ -1041,22 +1061,64 @@ que las colisiones aplicadas se concentraron en la base del brazo,
 generando máximo momento en J1. La Fig.~\ref{fig:tracking} (paneles
 ``Slave External Torques'' y ``Collision Events'') muestra los eventos.
 
-No se realizó validación cuantitativa con báscula (SI SE HIZO CLAUDE, ES EL SENSOR FSR 402 PORQUE ES UNA BASCULA, LOS VALORES ESTAN EN NEWTONS, GRAFICALO)
-calibrada. La validación fue cualitativa: al empujar el esclavo, el
-sistema detectó correctamente la colisión (2 eventos en el ensayo
-principal, ambos por trigger ``effort''), bloqueó el maestro durante
-$\geq$2\,s, y reanudó la teleoperación al liberar la fuerza.
+La validación cuantitativa se realizó mediante el sensor FSR~402
+montado en el efector final del esclavo, que actúa como célula de carga
+de contacto. Los valores ADC del ESP32 se convierten a Newtons
+mediante la curva de calibración del FSR~402 con resistencia de
+referencia de $10\,\text{k}\Omega$. Al empujar el esclavo, el sistema
+detectó correctamente la colisión (2 eventos en el ensayo principal,
+ambos por trigger ``effort''), bloqueó el maestro durante $\geq$2\,s,
+y reanudó la teleoperación al liberar la fuerza.
 
+La Fig.~\ref{fig:force_estimation} muestra los torques externos
+estimados, los torques reflejados al maestro, y la fuerza medida por
+el FSR~402 durante el ensayo principal (124\,s). Se observa la
+correlación temporal entre los picos de $\bm{\tau}_{ext}$ y las
+lecturas del FSR, validando la coherencia del estimador.
 
-\FIGURE{Fig. E3a: Fuerza estimada $\hat{\bm{F}}_{ext}(t) = [F_x, F_y, F_z]^\top$
-durante el evento de contacto. Señalen: inicio de contacto ($F > F_{th}$),
-fuerza máxima, y fin de contacto.}
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig_E3a_force_estimation.png}
+  \caption{\textbf{Estimación de fuerza durante el ensayo principal
+  (124\,s).} (a)~Torques externos estimados
+  $\bm{\tau}_{ext}=\bm{\tau}_{meas}-\bm{\tau}_{baseline}$ con umbral
+  de detección $\tau_{th}=6{.}0$\,Nm. (b)~Torques reflejados al
+  maestro con $\beta=0{.}35$ y clamp $\pm3{.}0$\,Nm. (c)~Fuerza medida
+  por el sensor FSR~402 en el efector final. Las zonas sombreadas
+  indican eventos de colisión detectados.}
+  \label{fig:force_estimation}
+\end{figure}
 
-\FIGURE{Fig. E3b: Validación del estimador: fuerza de referencia
-$F_{ref}$ (báscula) vs. fuerza estimada $\hat{F}_z$ en función del tiempo.
-Incluyan la recta de regresión lineal y $R^2$.}
+La Fig.~\ref{fig:fsr_validation} presenta la validación del estimador
+comparando la norma del torque externo $\|\bm{\tau}_{ext}\|$ con la
+fuerza medida por el FSR~402. El panel~(a) muestra la comparación
+temporal y el panel~(b) la correlación con regresión lineal.
 
-{claude esto es importante estas figuras, literal la calificacion requiere de estas}
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig_E3b_fsr_validation.png}
+  \caption{\textbf{Validación del estimador de fuerza con sensor
+  FSR~402.} (a)~Comparación temporal de $\|\bm{\tau}_{ext}\|$ vs.\
+  fuerza FSR durante un ensayo con múltiples contactos.
+  (b)~Dispersión y regresión lineal entre fuerza FSR y norma del
+  torque externo, con coeficiente de determinación $R^2$.}
+  \label{fig:fsr_validation}
+\end{figure}
+
+La Fig.~\ref{fig:collision_detail} presenta un detalle ampliado de un
+evento de colisión individual, mostrando la respuesta del sistema
+desde la detección hasta la recuperación.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig_collision_detail.png}
+  \caption{\textbf{Detalle de un evento de colisión.}
+  (a)~Posiciones maestro/esclavo durante el contacto.
+  (b)~Torques externos con anotación de inicio de contacto.
+  (c)~Torques reflejados al maestro.
+  (d)~Señal del sensor FSR~402 y flag de colisión por esfuerzo.}
+  \label{fig:collision_detail}
+\end{figure}
 
 
 El nivel de ruido en reposo (sin contacto) se midió durante calibración:
