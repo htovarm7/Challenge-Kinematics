@@ -13,7 +13,6 @@
 \usepackage[spanish,es-nodecimaldot]{babel}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{graphicx}
-\graphicspath{{experiments/plots/}}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{multirow}
@@ -117,15 +116,16 @@
 
 \author{%
   \IEEEauthorblockN{%
-    Jose Luis Dominguez\IEEEauthorrefmark{1},\;
-    Hector Serna\IEEEauthorrefmark{1},\;
-    Integrante 3\IEEEauthorrefmark{1}%
+    Jose Luis Dominguez Morales\IEEEauthorrefmark{1},\;
+    Hector Eduardo Tovar Mendoza\IEEEauthorrefmark{1},\;
+    Jocelyn Anahid Velarde Barron\IEEEauthorrefmark{1},\;
+    Paola Llamas Hernandez \IEEEauthorrefmark{1}%
   }\\
   \IEEEauthorblockA{%
     \IEEEauthorrefmark{1}%
     Computational Robotics Lab, Tecnológico de Monterrey,
     Monterrey, N.L., México\\
-    \texttt{\{A01XXX, A01XXX, A01XXX\}@tec.mx}
+    \texttt{\{A01285873, A00840308, A01285780, A01178479\}@tec.mx}
   }
 }
 
@@ -293,8 +293,17 @@ Dos configuraciones singulares del xArm Lite~6 son:
         numéricamente inestable y amplifica el ruido de torque.
 \end{enumerate}
 
-\FIGURE{Fig. T1: Configuraciones singulares del xArm Lite 6.
-Señalen las articulaciones involucradas.}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{Singluarities.png}
+    \caption{Configuraciones singulares del xArm Lite 6 observadas en simulación. 
+    \textbf{Izquierda:} singularidad de muñeca, donde $q_5 \approx 0$ provoca la alineación 
+    de los ejes de las articulaciones 4 y 6, reduciendo un grado de libertad rotacional. 
+    \textbf{Derecha:} singularidad de brazo extendido, donde $q_3 \approx \pi$ produce una 
+    configuración completamente estirada del brazo, limitando el movimiento radial 
+    del efector final.}
+    \label{fig:placeholder}
+\end{figure}
 
 La detección programática se realiza mediante el \textbf{número de condición}:
 \[
@@ -587,14 +596,6 @@ donde $\bm{\tau}_{baseline}$ es el vector de esfuerzos medido durante
 la fase de calibración con el robot en reposo en la posición HOME,
 que captura $\bm{g}(\bm{q}_{home})$ más offsets del firmware.
 
-\subsubsection*{Pregunta~F1 \pts{12}}
-\begin{enumerate}[label=(\alph*)]
-  \item Expliquen \textbf{tres fuentes de error} en la estimación.
-  \item ¿Compensaron la gravedad antes de estimar la fuerza?
-  \item ¿Aplicaron un filtro pasa-bajas?
-  \item ¿Cuál es el umbral de fuerza $F_{th}$?
-\end{enumerate}
-
 \textbf{Fuentes de error en la estimación}
 \begin{enumerate}
   \item \textbf{Dependencia de configuración de la gravedad:}
@@ -635,8 +636,6 @@ La relación señal-ruido efectiva es
 $\text{SNR}=\tau_{th}/\sigma_{ruido}\approx 6{.}0/0{.}3=20$ ($\sim26$~dB).
 
 \subsection{Alternativas de Sensado Consideradas}
-
-\subsubsection*{Pregunta~F2 \pts{8}}
 
 \smallskip
 \resizebox{\linewidth}{!}{%
@@ -755,7 +754,7 @@ de velocidad y torque propios.
 
 \begin{lstlisting}[caption={Ciclo de control del robot Esclavo (extracto de bilateral\_teleop.py)},
                    label={lst:slave}]
-# ── Ciclo principal del esclavo (50 Hz) ──
+# Ciclo principal del esclavo (50 Hz) 
 RATE_HZ = 50.0; DT = 1.0 / RATE_HZ
 MAX_DELTA_RAD = np.deg2rad(30.0) * DT  # 0.6 deg/ciclo
 EFFORT_THR = 6.0   # N.m umbral colision
@@ -1342,95 +1341,7 @@ del equipo docente de TE3001B.
 %% APÉNDICE — Rúbrica de Evaluación Completa
 %% ============================================================
 \appendix
-\section{Rúbrica de Evaluación}
-\label{app:rubrica}
-
-\begin{center}
-\small
-\begin{tabular}{p{0.35\columnwidth}ccp{0.25\columnwidth}}
-  \toprule
-  \textbf{Pregunta / Criterio} & \textbf{Pts.} & \textbf{Mín.} & \textbf{Evidencia Requerida} \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Teoría y Fundamentos}} \\
-  T1: Jacobiano y singularidades xArm & 8 & 5 & Derivación + figura sing. \\
-  T2: Control de par calculado (CTC)  & 10 & 6 & Derivación + gráfica resp. escalón \\
-  T3: Control de impedancia           & 8 & 5 & Cálculo $K_{d,max}$ + tabla $K_d$ \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Arquitectura y Comunicación}} \\
-  A1: Diagrama de bloques completo    & 10 & 6 & Figura con señales dimensionadas \\
-  A2: Protocolo y métricas de red     & 8 & 5 & Tabla RTT/jitter + captura ping \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Sensado de Fuerza}} \\
-  F1: Estimador torque-fuerza         & 12 & 7 & Gráficas antes/después filtro \\
-  F2: Comparativa estrategias         & 8 & 5 & Tabla completada + justificación \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Control e Implementación}} \\
-  C1: Control del esclavo             & 10 & 6 & Código funcional + flowchart \\
-  C2: Feedback háptico en maestro     & 8 & 5 & Cálculo $\beta_{max}$ + código \\
-  I1: Setup y configuración xArm SDK  & 10 & 6 & Documentación reproducible \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Resultados Experimentales}} \\
-  E1: Setup y descripción experimentos & 6 & 4 & Tabla hardware + descripción \\
-  E2: Error de seguimiento (6 joints)  & 12 & 7 & Gráficas + tabla métricas \\
-  E3: Estimación y validación fuerza   & 14 & 9 & Gráficas + validación báscula \\
-  E4: Análisis estabilidad háptica     & 8 & 5 & Prueba hard-wall + $\beta_{crit}$ \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Análisis y Conclusiones}} \\
-  D1: Discusión limitaciones y EA     & 8 & 5 & Citas IEEE + comparativa cuant. \\
-  Cn1: Conclusiones                   & 6 & 4 & Párrafos 200--300 palabras \\
-  \midrule
-  \multicolumn{4}{l}{\textbf{Calidad del Documento IEEE}} \\
-  Formato y ortografía                & 4 & 2 & LaTeX compilable, sin errores \\
-  Figuras con pie de figura y etiquetas & 4 & 2 & Mín. 8 figuras propias \\
-  Referencias (mín. 10, 2 recientes)  & 4 & 2 & BibTeX correcto \\
-  \midrule
-  \rowcolor{tec_blue!15}
-  \textbf{TOTAL} & \textbf{160} & \textbf{96} & \\
-  \bottomrule
-\end{tabular}
-\end{center}
-
-\begin{rubricbox}[Criterio de aprobación]
-  \begin{itemize}[itemsep=0.2em]
-    \item Score $\geq 96$ puntos sobre 160 (60\%).
-    \item La sección E3 debe incluir \textbf{evidencia experimental real}
-          con los xArm físicos (no simulación).
-    \item El estimador de fuerza debe mostrar coherencia con los torques
-          articulares medidos: $\bm{\tau}_{meas} \approx \bm{J}^\top \hat{\bm{F}}_{ext}$.
-    \item El documento LaTeX debe compilar sin errores.
-    \item Mínimo \textbf{8 figuras originales} (no tomadas de internet).
-  \end{itemize}
-\end{rubricbox}
-
-\section{Guía de Entrega}
-\label{app:entrega}
-
-\begin{todobox}[Checklist de entrega]
-  Antes de entregar, verifiquen que el repositorio/zip contiene:
-  \begin{enumerate}[label=$\square$, itemsep=0.3em]
-    \item \texttt{reporte.pdf} — artículo IEEE compilado (este documento completo)
-    \item \texttt{reporte.tex} — fuente LaTeX del artículo
-    \item \texttt{bilateral\_teleop.py} — código del nodo principal
-    \item \texttt{recover\_slave.py} — script de recuperación del esclavo
-    \item \texttt{Force\_Sensor.ino} — firmware del ESP32
-    \item \texttt{teleop\_params.yaml} — parámetros de configuración
-    \item \texttt{experiments/} — carpeta con archivos CSV de los 15 ensayos
-    \item \texttt{experiments/plots/} — gráficas generadas de cada ensayo
-    \item \texttt{video\_demo.mp4} — video de demostración
-    \item \texttt{README.md} — instrucciones para reproducir los experimentos
-  \end{enumerate}
-\end{todobox}
-
-\begin{rubricbox}[Video de demostración — Puntos extra]
-  Un video de demostración de alta calidad que muestre:
-  \begin{itemize}[itemsep=0.2em]
-    \item El operador moviendo el Maestro y el Esclavo replicando el movimiento.
-    \item Un evento de contacto claro con las gráficas de fuerza en pantalla.
-    \item La reacción háptica perceptible en el Maestro.
-  \end{itemize}
-  Un video bien editado (subtítulos, señales anotadas) puede obtener
-  hasta \textbf{+10 puntos extra} a criterio del profesor.
-\end{rubricbox}
+\href{https://github.com/htovarm7/Challenge-Kinematics}{Repositorio}
 
 \end{document}
 %% ============================================================
